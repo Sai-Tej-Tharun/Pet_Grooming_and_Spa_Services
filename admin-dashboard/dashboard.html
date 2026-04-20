@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <title>PawSpa Admin Dashboard</title>
+  <meta name="description" content="PawSpa Admin Dashboard - Manage bookings, users, and services." />
+
+  
+  <link rel="stylesheet" href="../global-css/global.css" />
+  <link rel="stylesheet" href="./dashboard.css" />
+
+  
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+
+<body>
+
+<div class="dashboard">
+
+  
+  <aside class="sidebar">
+    <a href="../home-1/home.html">    <div class="sidebar__logo">
+      <img src="../global-images/logo.svg" alt="logo" />
+    </div></a>
+
+
+    <nav class="sidebar__nav">
+      <a href="#" class="active"><i data-lucide="layout-dashboard"></i> Dashboard</a>
+      <a href="#"><i data-lucide="calendar"></i> Bookings</a>
+      <a href="#"><i data-lucide="users"></i> Customers</a>
+      <a href="#"><i data-lucide="scissors"></i> Services</a>
+      <a href="#"><i data-lucide="star"></i> Reviews</a>
+      <a href="#"><i data-lucide="file-text"></i> Blog CMS</a>
+      <a href="#"><i data-lucide="bar-chart"></i> Analytics</a>
+      <a href="#"><i data-lucide="settings"></i> Settings</a>
+    </nav>
+
+    <div class="sidebar__bottom">
+      <button class="logout-btn">
+        <i data-lucide="log-out"></i> Logout
+      </button>
+    </div>
+  </aside>
+
+  
+  <main class="main">
+
+    
+    <header class="topbar">
+
+      <h1>Admin Dashboard</h1>
+
+      <div class="topbar__actions">
+
+        
+        <button id="themeToggle" aria-label="Toggle theme">
+          <i data-lucide="moon"></i>
+        </button>
+
+        
+        <div class="notif-wrapper">
+          <button id="notifBtn" aria-label="Notifications">
+            <i data-lucide="bell"></i>
+            <span class="notif-badge">3</span>
+          </button>
+
+          <div class="notif-dropdown" id="notifDropdown">
+            <h4>Notifications</h4>
+
+            <div class="notif-item">New booking received</div>
+            <div class="notif-item">New user registered</div>
+            <div class="notif-item">Review submitted</div>
+          </div>
+        </div>
+
+        
+        <div class="profile">
+          <img src="https://images.unsplash.com/photo-1595152772835-219674b2a8a6?q=80&w=200" alt="admin profile" />
+        </div>
+
+      </div>
+    </header>
+
+    
+    <section class="cards">
+      <div class="card">
+        <h3>Total Bookings</h3>
+        <p>1,245</p>
+      </div>
+
+      <div class="card">
+        <h3>Customers</h3>
+        <p>890</p>
+      </div>
+
+      <div class="card">
+        <h3>Revenue</h3>
+        <p>₹1,25,000</p>
+      </div>
+
+      <div class="card">
+        <h3>Reviews</h3>
+        <p>320</p>
+      </div>
+    </section>
+
+    
+    <section class="table-section">
+      <h2>Recent Bookings</h2>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Customer</th>
+            <th>Service</th>
+            <th>Date</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          <tr>
+            <td>Ravi Kumar</td>
+            <td>Full Grooming</td>
+            <td>Mar 30</td>
+            <td><span class="status success">Completed</span></td>
+          </tr>
+
+          <tr>
+            <td>Priya Sharma</td>
+            <td>Spa Treatment</td>
+            <td>Mar 31</td>
+            <td><span class="status pending">Pending</span></td>
+          </tr>
+
+          <tr>
+            <td>Arjun Reddy</td>
+            <td>Nail Clipping</td>
+            <td>Apr 1</td>
+            <td><span class="status cancel">Cancelled</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+  </main>
+
+</div>
+
+<script src="../global-js/global.js"></script>
+<script src="./dashboard.js"></script>
+
+</body>
+</html>
