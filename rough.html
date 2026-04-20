@@ -1,0 +1,865 @@
+/**
+ * ============================================================
+ * PawSpa — global.js  (FIXED v2)
+ * Core site functionality loaded on every page.
+ *
+ * KEY FIXES vs original:
+ * 1. initComponents() now calls window.initNavbarComponent()
+ *    (from navbar.js) after injecting the HTML, instead of
+ *    running its own initNavbar(). This prevents the two
+ *    mobile-menu implementations from fighting each other.
+ * 2. The old initNavbar() / initMobileMenu() stubs are kept
+ *    but delegate to navbar.js so nothing breaks if global.js
+ *    runs before navbar.js loads.
+ * 3. Component path resolution is improved — works for pages
+ *    at any folder depth (home-1/, contact/, 404-page/, etc.).
+ * ============================================================
+ */
+
+'use strict';
+
+/* ─────────────────────────────────────────────
+   1. STATE
+   ───────────────────────────────────────────── */
+const CURRENT_PATH = window.location.pathname;
+
+const AppState = {
+  theme: localStorage.getItem('pawspa-theme') || 'light',
+  dir:   localStorage.getItem('pawspa-dir')   || 'ltr',
+  mobileMenuOpen: false,
+};
+
+/* ─────────────────────────────────────────────
+   2. COMPONENT LOADER
+   ───────────────────────────────────────────── */
+
+/**
+ * Fetches an HTML component and injects it into a selector.
+ * @param {string}   url      - path to the .html component
+ * @param {string}   selector - CSS selector for mount point
+ * @param {Function} [callback]
+ */
+async function loadComponent(url, selector, callback) {
+  const mount = document.querySelector(selector);
+  if (!mount) return;
+
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status} loading ${url}`);
+    mount.innerHTML = await res.text();
+    if (typeof callback === 'function') callback();
+  } catch (err) {
+    console.warn('[PawSpa] Component load error:', err.message);
+  }
+}
+
+/**
+ * Resolves the path prefix needed to reach /components/ from
+ * the current page regardless of folder depth.
+ *
+ * Examples:
+ *   /home-1/home.html      → ../
+ *   /contact/contact.html  → ../
+ *   /404-page/404.html     → ../
+ *   /index.html            → ./
+ */
+function resolveComponentPrefix() {
+  // Count path segments to determine depth
+  const parts = CURRENT_PATH.replace(/\/$/, '').split('/').filter(Boolean);
+  // pages are always one level deep (e.g. /home-1/home.html = 2 parts)
+  // root index.html = 0 parts
+  if (parts.length <= 1) return './';
+  return '../';
+}
+
+/**
+ * Load navbar + footer components then boot all UI modules.
+ */
+async function initComponents() {
+  const prefix = resolveComponentPrefix();
+
+  const navPath  = `${prefix}components/navbar.html`;
+  const footPath = `${prefix}components/footer.html`;
+
+  // Load navbar, then run navbar.js initialiser
+  await loadComponent(navPath, '#navbar-mount', () => {
+    /*
+      Prefer navbar.js's own initialiser if it has already
+      loaded. Otherwise fall back to our local stub.
+    */
+    if (typeof window.initNavbarComponent === 'function') {
+      window.initNavbarComponent();
+    } else {
+      // navbar.js hasn't loaded yet — wire the basics and
+      // wait for it via the DOMContentLoaded auto-run in navbar.js
+      applyTheme(AppState.theme);
+      applyDirection(AppState.dir);
+    }
+  });
+
+  // Load footer
+  await loadComponent(footPath, '#footer-mount', initFooter);
+}
+
+/* ─────────────────────────────────────────────
+   3. THEME TOGGLE
+   ───────────────────────────────────────────── */
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  localStorage.setItem('pawspa-theme', theme);
+  AppState.theme = theme;
+
+  document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+    const iconLight = btn.querySelector('[data-icon-light]');
+    const iconDark  = btn.querySelector('[data-icon-dark]');
+    if (iconLight) iconLight.style.display = theme === 'dark' ? 'block' : 'none';
+    if (iconDark)  iconDark.style.display  = theme === 'light' ? 'block' : 'none';
+    btn.setAttribute('aria-label', theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode');
+    btn.setAttribute('title',      theme === 'dark' ? 'Light mode' : 'Dark mode');
+  });
+}
+
+function toggleTheme() {
+  applyTheme(AppState.theme === 'dark' ? 'light' : 'dark');
+}
+
+/* ─────────────────────────────────────────────
+   4. RTL TOGGLE
+   ───────────────────────────────────────────── */
+function applyDirection(dir) {
+  document.documentElement.setAttribute('dir', dir);
+  localStorage.setItem('pawspa-dir', dir);
+  AppState.dir = dir;
+
+  document.querySelectorAll('[data-rtl-toggle]').forEach(btn => {
+    btn.setAttribute('aria-label', dir === 'rtl' ? 'Switch to LTR' : 'Switch to RTL');
+    btn.setAttribute('title',      dir === 'rtl' ? 'LTR mode' : 'RTL mode');
+    btn.classList.toggle('active', dir === 'rtl');
+  });
+}
+
+function toggleDirection() {
+  applyDirection(AppState.dir === 'rtl' ? 'ltr' : 'rtl');
+}
+
+/* ─────────────────────────────────────────────
+   5. NAVBAR INIT (called by loadComponent callback)
+   Now delegates entirely to navbar.js.
+   This stub is kept so any code that calls
+   initNavbar() directly still works.
+   ───────────────────────────────────────────── */
+function initNavbar() {
+  // Wire theme / RTL toggles (navbar.js also does this,
+  // but doing it here ensures they work even if navbar.js
+  // hasn't parsed yet).
+  document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+    btn.addEventListener('click', toggleTheme);
+  });
+  document.querySelectorAll('[data-rtl-toggle]').forEach(btn => {
+    btn.addEventListener('click', toggleDirection);
+  });
+
+  applyTheme(AppState.theme);
+  applyDirection(AppState.dir);
+
+  // Hand off the rest to navbar.js
+  if (typeof window.initNavbarComponent === 'function') {
+    window.initNavbarComponent();
+  }
+}
+
+/* ─────────────────────────────────────────────
+   6. FOOTER
+   ───────────────────────────────────────────── */
+function initFooter() {
+  const form = document.querySelector('#footer-newsletter-form');
+  if (!form) return;
+
+  form.addEventListener('submit', e => {
+    e.preventDefault();
+    const input = form.querySelector('input[type="email"]');
+    if (!input || !input.value.trim()) return;
+    showToast("You're subscribed! 🐾 Welcome to the PawSpa family.", 'success');
+    input.value = '';
+  });
+}
+
+/* ─────────────────────────────────────────────
+   7. AOS — SCROLL ANIMATIONS
+   ───────────────────────────────────────────── */
+function initAOS() {
+  const elements = document.querySelectorAll('[data-aos]');
+  if (!elements.length) return;
+
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (reduced) {
+    elements.forEach(el => el.classList.add('aos-animate'));
+    return;
+  }
+
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('aos-animate');
+        observer.unobserve(entry.target);
+      }
+    });
+  }, { threshold: 0.12, rootMargin: '0px 0px -40px 0px' });
+
+  elements.forEach(el => observer.observe(el));
+}
+
+/* ─────────────────────────────────────────────
+   8. TOAST NOTIFICATIONS
+   ───────────────────────────────────────────── */
+const TOAST_DURATION = 4000;
+
+function showToast(message, type = 'info', duration = TOAST_DURATION) {
+  let container = document.querySelector('.toast-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.className = 'toast-container';
+    container.setAttribute('aria-live', 'polite');
+    document.body.appendChild(container);
+  }
+
+  const icons = {
+    success: `<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>`,
+    error:   `<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>`,
+    info:    `<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`,
+    warning: `<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
+  };
+
+  const colors = {
+    success: 'var(--paw-green)',
+    error:   '#e05252',
+    info:    'var(--aqua-fresh, #7ED1C6)',
+    warning: 'var(--paw-gold, #D9A85F)',
+  };
+
+  const toast = document.createElement('div');
+  toast.className = `toast toast-${type}`;
+  toast.setAttribute('role', 'alert');
+  toast.innerHTML = `
+    <span style="color:${colors[type]};flex-shrink:0">${icons[type] || ''}</span>
+    <span style="flex:1;font-size:0.875rem">${message}</span>
+    <button onclick="this.closest('.toast').remove()"
+      style="width:20px;height:20px;display:flex;align-items:center;justify-content:center;
+             border:none;background:none;cursor:pointer;color:var(--text-muted);flex-shrink:0"
+      aria-label="Dismiss">
+      <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+      </svg>
+    </button>
+  `;
+
+  container.appendChild(toast);
+
+  setTimeout(() => {
+    toast.classList.add('removing');
+    toast.addEventListener('animationend', () => toast.remove(), { once: true });
+  }, duration);
+}
+
+/* ─────────────────────────────────────────────
+   9. MODAL SYSTEM
+   ───────────────────────────────────────────── */
+function openModal(modalId) {
+  const modal   = document.getElementById(modalId);
+  const overlay = document.getElementById('modal-overlay') || createModalOverlay();
+  if (!modal) return;
+
+  overlay.classList.add('open');
+  modal.classList.add('open');
+  modal.setAttribute('aria-hidden', 'false');
+  document.body.style.overflow = 'hidden';
+
+  const focusable = modal.querySelector('input, button, select, textarea, a[href]');
+  if (focusable) setTimeout(() => focusable.focus(), 100);
+}
+
+function closeModal(modalId) {
+  const selector = modalId ? `#${modalId}` : '.modal.open';
+  const modal    = document.querySelector(selector);
+  const overlay  = document.getElementById('modal-overlay');
+  if (!modal) return;
+
+  modal.classList.remove('open');
+  modal.setAttribute('aria-hidden', 'true');
+  if (overlay) overlay.classList.remove('open');
+  document.body.style.overflow = '';
+}
+
+function createModalOverlay() {
+  let overlay = document.getElementById('modal-overlay');
+  if (overlay) return overlay;
+  overlay = document.createElement('div');
+  overlay.id = 'modal-overlay';
+  overlay.className = 'overlay';
+  overlay.addEventListener('click', () => closeModal());
+  document.body.appendChild(overlay);
+  return overlay;
+}
+
+function initModals() {
+  document.addEventListener('click', e => {
+    const opener = e.target.closest('[data-modal-open]');
+    if (opener) openModal(opener.dataset.modalOpen);
+
+    const closer = e.target.closest('[data-modal-close], .modal-close');
+    if (closer) closeModal(closer.dataset.modalClose);
+  });
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeModal();
+  });
+}
+
+/* ─────────────────────────────────────────────
+   10. BOOKING MODAL
+   ───────────────────────────────────────────── */
+function initBookingModal() {
+  if (document.getElementById('booking-modal')) return;
+
+  const modal = document.createElement('div');
+  modal.id = 'booking-modal';
+  modal.className = 'modal';
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
+  modal.setAttribute('aria-labelledby', 'booking-modal-title');
+  modal.setAttribute('aria-hidden', 'true');
+
+  modal.innerHTML = `
+    <div class="modal-header">
+      <h4 id="booking-modal-title" style="font-family:var(--font-heading);font-weight:600;color:var(--text-heading)">
+        🐾 Book an Appointment
+      </h4>
+      <button class="modal-close" aria-label="Close booking modal" data-modal-close="booking-modal">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <form id="booking-form" novalidate>
+        <div class="form-group">
+          <label class="form-label" for="b-name">Your Name <span class="required">*</span></label>
+          <input class="form-control" type="text" id="b-name" name="name"
+            placeholder="Enter your full name" autocomplete="name" required>
+          <span class="form-error">Please enter your name.</span>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="b-phone">Phone Number <span class="required">*</span></label>
+          <input class="form-control" type="tel" id="b-phone" name="phone"
+            placeholder="+91 98765 43210" autocomplete="tel" required>
+          <span class="form-error">Please enter a valid phone number.</span>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="b-email">Email Address</label>
+          <input class="form-control" type="email" id="b-email" name="email"
+            placeholder="your@email.com" autocomplete="email">
+          <span class="form-error">Please enter a valid email.</span>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="b-pet">Pet Type <span class="required">*</span></label>
+          <select class="form-control form-select" id="b-pet" name="pet" required>
+            <option value="" disabled selected>Select your pet</option>
+            <option value="dog">Dog 🐶</option>
+            <option value="cat">Cat 🐱</option>
+            <option value="rabbit">Rabbit 🐰</option>
+            <option value="other">Other</option>
+          </select>
+          <span class="form-error">Please select your pet type.</span>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="b-service">Service <span class="required">*</span></label>
+          <select class="form-control form-select" id="b-service" name="service" required>
+            <option value="" disabled selected>Select a service</option>
+            <option value="full-grooming">Full Grooming</option>
+            <option value="bath-blow">Bath &amp; Blow Dry</option>
+            <option value="hair-styling">Hair Styling</option>
+            <option value="nail-clipping">Nail Clipping</option>
+            <option value="spa">Spa Treatment</option>
+            <option value="medicated-bath">Medicated Bath</option>
+          </select>
+          <span class="form-error">Please select a service.</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-2,1rem)">
+          <div class="form-group">
+            <label class="form-label" for="b-date">Date <span class="required">*</span></label>
+            <input class="form-control" type="date" id="b-date" name="date" required>
+            <span class="form-error">Please select a date.</span>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="b-time">Time <span class="required">*</span></label>
+            <select class="form-control form-select" id="b-time" name="time" required>
+              <option value="" disabled selected>Select time</option>
+              <option>09:00 AM</option><option>10:00 AM</option>
+              <option>11:00 AM</option><option>12:00 PM</option>
+              <option>02:00 PM</option><option>03:00 PM</option>
+              <option>04:00 PM</option><option>05:00 PM</option>
+            </select>
+            <span class="form-error">Please select a time.</span>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="b-notes">Additional Notes</label>
+          <textarea class="form-control" id="b-notes" name="notes"
+            placeholder="Any special requests or pet health info…" rows="3"></textarea>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-ghost btn-sm" data-modal-close="booking-modal">Cancel</button>
+      <button type="button" class="btn btn-primary btn-sm" id="booking-submit">
+        Confirm Booking 🐾
+      </button>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  const dateInput = modal.querySelector('#b-date');
+  if (dateInput) dateInput.min = new Date().toISOString().split('T')[0];
+
+  const submitBtn = modal.querySelector('#booking-submit');
+  if (submitBtn) {
+    submitBtn.addEventListener('click', () => {
+      const form = modal.querySelector('#booking-form');
+      if (validateForm(form)) {
+        closeModal('booking-modal');
+        showToast("Your appointment has been booked! We'll confirm shortly. 🐾", 'success', 5000);
+        form.reset();
+      }
+    });
+  }
+}
+
+/* ─────────────────────────────────────────────
+   11. FORM VALIDATION
+   ───────────────────────────────────────────── */
+function validateForm(form) {
+  if (!form) return false;
+  let valid = true;
+
+  form.querySelectorAll('.form-group').forEach(g => g.classList.remove('has-error', 'has-success'));
+
+  form.querySelectorAll('[required]').forEach(field => {
+    const group    = field.closest('.form-group');
+    if (!group) return;
+    const isEmpty  = !field.value.trim();
+    const isEmail  = field.type === 'email';
+    const emailOk  = isEmail ? /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(field.value) : true;
+    const invalid  = isEmpty || !emailOk;
+
+    if (invalid) { group.classList.add('has-error'); valid = false; }
+    else         { group.classList.add('has-success'); }
+  });
+
+  const firstError = form.querySelector('.has-error .form-control, .has-error select');
+  if (firstError) firstError.focus();
+  return valid;
+}
+
+function initFormValidation() {
+  document.querySelectorAll('form[data-validate]').forEach(form => {
+    form.querySelectorAll('.form-control, select').forEach(field => {
+      field.addEventListener('blur', () => {
+        const group   = field.closest('.form-group');
+        if (!group) return;
+        const required = field.hasAttribute('required');
+        const isEmpty  = !field.value.trim();
+        const isEmail  = field.type === 'email';
+        const emailOk  = isEmail ? /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(field.value) : true;
+
+        if (required && isEmpty) {
+          group.classList.add('has-error'); group.classList.remove('has-success');
+        } else if (isEmail && !emailOk) {
+          group.classList.add('has-error'); group.classList.remove('has-success');
+        } else if (!isEmpty) {
+          group.classList.remove('has-error'); group.classList.add('has-success');
+        }
+      });
+    });
+  });
+}
+
+/* ─────────────────────────────────────────────
+   12. ACCORDION
+   ───────────────────────────────────────────── */
+function initAccordion() {
+  document.querySelectorAll('.accordion-trigger').forEach(trigger => {
+    trigger.addEventListener('click', () => {
+      const item = trigger.closest('.accordion-item');
+      if (!item) return;
+      const siblings = item.parentElement?.querySelectorAll('.accordion-item.open');
+      siblings?.forEach(sib => { if (sib !== item) sib.classList.remove('open'); });
+      item.classList.toggle('open');
+    });
+  });
+}
+
+/* ─────────────────────────────────────────────
+   13. TABS
+   ───────────────────────────────────────────── */
+function initTabs() {
+  document.querySelectorAll('[data-tab-group]').forEach(group => {
+    const buttons = group.querySelectorAll('.tab-btn');
+    const panels  = document.querySelectorAll(`[data-tab-panel="${group.dataset.tabGroup}"]`);
+
+    buttons.forEach((btn, i) => {
+      btn.addEventListener('click', () => {
+        buttons.forEach(b => b.classList.remove('active'));
+        panels.forEach(p => p.classList.remove('active'));
+        btn.classList.add('active');
+        if (panels[i]) panels[i].classList.add('active');
+      });
+    });
+  });
+}
+
+/* ─────────────────────────────────────────────
+   14. LAZY LOAD
+   ───────────────────────────────────────────── */
+function initLazyLoad() {
+  if ('loading' in HTMLImageElement.prototype) return;
+  const observer = new IntersectionObserver(entries => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        const img = entry.target;
+        if (img.dataset.src) img.src = img.dataset.src;
+        observer.unobserve(img);
+      }
+    });
+  });
+  document.querySelectorAll('img[loading="lazy"]').forEach(img => observer.observe(img));
+}
+
+/* ─────────────────────────────────────────────
+   15. SMOOTH SCROLL
+   ───────────────────────────────────────────── */
+function initSmoothScroll() {
+  document.querySelectorAll('a[href^="#"]').forEach(link => {
+    link.addEventListener('click', e => {
+      const target = document.querySelector(link.getAttribute('href'));
+      if (!target) return;
+      e.preventDefault();
+      const offset = 88;
+      const top = target.getBoundingClientRect().top + window.scrollY - offset;
+      window.scrollTo({ top, behavior: 'smooth' });
+    });
+  });
+}
+
+/* ─────────────────────────────────────────────
+   16. COUNTER ANIMATION
+   ───────────────────────────────────────────── */
+function initCounters() {
+  const counters = document.querySelectorAll('[data-counter]');
+  if (!counters.length) return;
+
+  const observer = new IntersectionObserver(entries => {
+    entries.forEach(entry => {
+      if (!entry.isIntersecting) return;
+      const el     = entry.target;
+      const target = parseInt(el.dataset.counter, 10);
+      const suffix = el.dataset.suffix || '';
+      const start  = performance.now();
+
+      const update = (now) => {
+        const elapsed  = now - start;
+        const progress = Math.min(elapsed / 2000, 1);
+        const eased    = 1 - Math.pow(1 - progress, 3);
+        el.textContent = Math.floor(eased * target).toLocaleString('en-IN') + suffix;
+        if (progress < 1) requestAnimationFrame(update);
+      };
+
+      requestAnimationFrame(update);
+      observer.unobserve(el);
+    });
+  }, { threshold: 0.5 });
+
+  counters.forEach(el => observer.observe(el));
+}
+
+/* ─────────────────────────────────────────────
+   17. IMAGE ZOOM HOVER
+   ───────────────────────────────────────────── */
+function initImageZoom() {
+  document.querySelectorAll('[data-zoom-img]').forEach(wrapper => {
+    const img = wrapper.querySelector('img');
+    if (!img) return;
+    img.style.transition = 'transform 0.5s ease';
+    wrapper.addEventListener('mouseenter', () => { img.style.transform = 'scale(1.06)'; });
+    wrapper.addEventListener('mouseleave', () => { img.style.transform = 'scale(1)'; });
+  });
+}
+
+/* ─────────────────────────────────────────────
+   18. BEFORE / AFTER SLIDER
+   ───────────────────────────────────────────── */
+function initBeforeAfterSliders() {
+  document.querySelectorAll('[data-ba-slider]').forEach(slider => {
+    const handle     = slider.querySelector('.ba-handle');
+    const beforeWrap = slider.querySelector('.ba-before-wrap');
+    if (!handle || !beforeWrap) return;
+
+    let dragging = false;
+
+    const move = (x) => {
+      const rect = slider.getBoundingClientRect();
+      const pct  = Math.min(Math.max((x - rect.left) / rect.width, 0.05), 0.95);
+      beforeWrap.style.width = (pct * 100) + '%';
+      handle.style.left      = (pct * 100) + '%';
+    };
+
+    handle.addEventListener('mousedown',  e => { dragging = true; e.preventDefault(); });
+    handle.addEventListener('touchstart', () => { dragging = true; }, { passive: true });
+    document.addEventListener('mousemove', e => { if (dragging) move(e.clientX); });
+    document.addEventListener('touchmove', e => { if (dragging) move(e.touches[0].clientX); }, { passive: true });
+    document.addEventListener('mouseup',   () => { dragging = false; });
+    document.addEventListener('touchend',  () => { dragging = false; });
+
+    move(slider.getBoundingClientRect().left + slider.offsetWidth * 0.5);
+  });
+}
+
+/* ─────────────────────────────────────────────
+   19. SLIDER / CAROUSEL
+   ───────────────────────────────────────────── */
+function initSliders() {
+  document.querySelectorAll('[data-slider]').forEach(root => {
+    const track    = root.querySelector('.slides-track');
+    const slides   = root.querySelectorAll('.slide');
+    const prevBtn  = root.querySelector('[data-slider-prev]');
+    const nextBtn  = root.querySelector('[data-slider-next]');
+    const dotsWrap = root.querySelector('[data-slider-dots]');
+    if (!track || !slides.length) return;
+
+    let current = 0;
+    let interval;
+    const total = slides.length;
+
+    if (dotsWrap) {
+      slides.forEach((_, i) => {
+        const dot = document.createElement('button');
+        dot.className = 'slider-dot' + (i === 0 ? ' active' : '');
+        dot.setAttribute('aria-label', `Go to slide ${i + 1}`);
+        dot.addEventListener('click', () => goTo(i));
+        dotsWrap.appendChild(dot);
+      });
+    }
+
+    const goTo = (index) => {
+      current = (index + total) % total;
+      track.style.transform = `translateX(-${current * 100}%)`;
+      dotsWrap?.querySelectorAll('.slider-dot').forEach((d, i) => {
+        d.classList.toggle('active', i === current);
+      });
+    };
+
+    const next = () => goTo(current + 1);
+    const prev = () => goTo(current - 1);
+
+    if (nextBtn) nextBtn.addEventListener('click', () => { next(); resetAuto(); });
+    if (prevBtn) prevBtn.addEventListener('click', () => { prev(); resetAuto(); });
+
+    const autoPlay  = () => { interval = setInterval(next, 4500); };
+    const resetAuto = () => { clearInterval(interval); autoPlay(); };
+
+    autoPlay();
+    root.addEventListener('mouseenter', () => clearInterval(interval));
+    root.addEventListener('mouseleave', autoPlay);
+
+    let startX = 0;
+    root.addEventListener('touchstart', e => { startX = e.touches[0].clientX; }, { passive: true });
+    root.addEventListener('touchend', e => {
+      const diff = startX - e.changedTouches[0].clientX;
+      if (Math.abs(diff) > 50) { diff > 0 ? next() : prev(); resetAuto(); }
+    });
+  });
+}
+
+/* ─────────────────────────────────────────────
+   20. FILTER TABS
+   ───────────────────────────────────────────── */
+function initFilters() {
+  document.querySelectorAll('[data-filter-group]').forEach(group => {
+    const filterBtns = group.querySelectorAll('[data-filter]');
+    const container  = document.querySelector(group.dataset.filterTarget);
+    if (!container) return;
+    const items = container.querySelectorAll('[data-category]');
+
+    filterBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        filterBtns.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const value = btn.dataset.filter;
+        items.forEach(item => {
+          item.style.display = (value === '*' || item.dataset.category === value) ? '' : 'none';
+        });
+      });
+    });
+  });
+}
+
+/* ─────────────────────────────────────────────
+   21. BACK TO TOP
+   ───────────────────────────────────────────── */
+function initBackToTop() {
+  const btn = document.querySelector('#back-to-top');
+  if (!btn) return;
+
+  window.addEventListener('scroll', () => {
+    btn.classList.toggle('visible', window.scrollY > 400);
+  }, { passive: true });
+
+  btn.addEventListener('click', () => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+}
+
+/* ─────────────────────────────────────────────
+   22. COOKIE BANNER
+   ───────────────────────────────────────────── */
+function initCookieBanner() {
+  if (localStorage.getItem('pawspa-cookies-accepted')) return;
+  const banner = document.getElementById('cookie-banner');
+  if (!banner) return;
+
+  banner.style.display = 'flex';
+
+  const acceptBtn = banner.querySelector('[data-cookie-accept]');
+  if (acceptBtn) {
+    acceptBtn.addEventListener('click', () => {
+      localStorage.setItem('pawspa-cookies-accepted', 'true');
+      banner.style.opacity = '0';
+      setTimeout(() => banner.remove(), 400);
+    });
+  }
+}
+
+/* ─────────────────────────────────────────────
+   23. LIGHTBOX
+   ───────────────────────────────────────────── */
+function initLightbox() {
+  const images = document.querySelectorAll('[data-lightbox]');
+  if (!images.length) return;
+
+  let lb = document.getElementById('paw-lightbox');
+  if (!lb) {
+    lb = document.createElement('div');
+    lb.id = 'paw-lightbox';
+    lb.style.cssText = `
+      position:fixed;inset:0;z-index:9999;
+      background:rgba(0,0,0,0.92);display:none;
+      align-items:center;justify-content:center;cursor:zoom-out;
+    `;
+    lb.innerHTML = `
+      <img id="lb-img" src="" alt=""
+        style="max-width:90vw;max-height:90vh;border-radius:12px;box-shadow:0 32px 80px rgba(0,0,0,0.6)">
+      <button id="lb-close" aria-label="Close lightbox"
+        style="position:absolute;top:1.5rem;right:1.5rem;background:rgba(255,255,255,0.1);
+               border:1px solid rgba(255,255,255,0.2);border-radius:8px;width:44px;height:44px;
+               display:flex;align-items:center;justify-content:center;cursor:pointer;color:#fff;font-size:1.5rem">
+        ✕
+      </button>
+    `;
+    document.body.appendChild(lb);
+  }
+
+  const lbImg   = lb.querySelector('#lb-img');
+  const lbClose = lb.querySelector('#lb-close');
+
+  const open  = (src, alt) => { lbImg.src = src; lbImg.alt = alt || ''; lb.style.display = 'flex'; document.body.style.overflow = 'hidden'; };
+  const close = () => { lb.style.display = 'none'; document.body.style.overflow = ''; };
+
+  images.forEach(img => {
+    img.style.cursor = 'zoom-in';
+    img.addEventListener('click', () => open(img.src || img.dataset.lightbox, img.alt));
+  });
+
+  lb.addEventListener('click', e => { if (e.target === lb || e.target === lbClose) close(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
+}
+
+/* ─────────────────────────────────────────────
+   24. UTILS
+   ───────────────────────────────────────────── */
+function debounce(fn, delay = 300) {
+  let timer;
+  return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), delay); };
+}
+
+function throttle(fn, limit = 100) {
+  let last = 0;
+  return (...args) => { const now = Date.now(); if (now - last >= limit) { last = now; fn(...args); } };
+}
+
+function formatRupee(amount) {
+  return '₹' + Number(amount).toLocaleString('en-IN');
+}
+
+/* ─────────────────────────────────────────────
+   25. PUBLIC API
+   ───────────────────────────────────────────── */
+window.PawSpa = {
+  openModal,
+  closeModal,
+  showToast,
+  validateForm,
+  toggleTheme,
+  toggleDirection,
+  formatRupee,
+  debounce,
+  throttle,
+};
+
+/* ─────────────────────────────────────────────
+   26. ENTRY POINT
+   ───────────────────────────────────────────── */
+document.addEventListener('DOMContentLoaded', async () => {
+  // Apply persisted theme & direction immediately (before render)
+  applyTheme(AppState.theme);
+  applyDirection(AppState.dir);
+
+  // Load shared components (navbar + footer)
+  await initComponents();
+
+  // Re-apply theme/direction after navbar renders
+  // (theme toggle icons are now in the DOM)
+  applyTheme(AppState.theme);
+  applyDirection(AppState.dir);
+
+  // UI modules
+  initModals();
+  initBookingModal();
+  initFormValidation();
+  initAccordion();
+  initTabs();
+  initFilters();
+
+  // Visual / interaction
+  initAOS();
+  initCounters();
+  initSliders();
+  initBeforeAfterSliders();
+  initImageZoom();
+  initLightbox();
+  initLazyLoad();
+  initSmoothScroll();
+  initBackToTop();
+  initCookieBanner();
+
+  /*
+    Wire Book Now buttons globally.
+    NOTE: navbar.js also wires its own [data-book-now] buttons.
+    We run this AFTER initBookingModal() so the modal exists.
+  */
+  document.querySelectorAll('[data-book-now], .btn-book-now').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.preventDefault();
+      openModal('booking-modal');
+    });
+  });
+});
